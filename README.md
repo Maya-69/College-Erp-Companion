@@ -185,6 +185,3 @@ All three need to run simultaneously for full functionality. Use separate termin
 - Student can only see their own data (row-level filtering)
 - Sensitive fields stripped from responses (passwords never sent)
 
-## License
-
-This is a portfolio/educational project.
