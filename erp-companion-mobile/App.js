@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,7 @@ const COMPANION_URL_KEY = 'companion_base_url';
 const ERP_URL_KEY = 'erp_base_url';
 const DEFAULT_COMPANION_BASE = process.env.EXPO_PUBLIC_COMPANION_API || 'http://10.0.2.2:5001';
 const DEFAULT_ERP_BASE = process.env.EXPO_PUBLIC_ERP_URL || 'http://10.0.2.2:5000';
+const isWeb = Platform.OS === 'web';
 
 const docTypes = ['bonafide', 'transcript', 'leavingCertificate', 'idCard', 'marksheet'];
 const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -58,6 +60,46 @@ async function request(path, options = {}, token) {
   }
 
   return data;
+}
+
+async function storageGet(key) {
+  try {
+    const value = await SecureStore.getItemAsync(key);
+    if (value !== null && value !== undefined) return value;
+  } catch {
+  }
+
+  if (isWeb && typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem(key) || '';
+  }
+
+  return '';
+}
+
+async function storageSet(key, value) {
+  try {
+    await SecureStore.setItemAsync(key, value);
+    return;
+  } catch {
+  }
+
+  if (isWeb && typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.setItem(key, value);
+    return;
+  }
+
+  throw new Error('Could not persist data on this device/browser');
+}
+
+async function storageDelete(key) {
+  try {
+    await SecureStore.deleteItemAsync(key);
+  } catch {
+  }
+
+  if (isWeb && typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem(key);
+  }
 }
 
 export default function App() {
@@ -141,10 +183,10 @@ export default function App() {
   useEffect(() => {
     async function bootstrap() {
       try {
-        const savedCompanionBase = (await SecureStore.getItemAsync(COMPANION_URL_KEY)) || '';
-        const savedErpBase = (await SecureStore.getItemAsync(ERP_URL_KEY)) || '';
-        const savedToken = (await SecureStore.getItemAsync(TOKEN_KEY)) || '';
-        const localKey = (await SecureStore.getItemAsync(API_KEY_LOCAL_KEY)) || '';
+        const savedCompanionBase = await storageGet(COMPANION_URL_KEY);
+        const savedErpBase = await storageGet(ERP_URL_KEY);
+        const savedToken = await storageGet(TOKEN_KEY);
+        const localKey = await storageGet(API_KEY_LOCAL_KEY);
 
         if (!savedCompanionBase) {
           setCompanionBaseUrlInput(DEFAULT_COMPANION_BASE);
@@ -170,8 +212,8 @@ export default function App() {
         setUser(me.user);
         setApiKeyConfigured(Boolean(keyStatus.keyConfigured || localKey));
       } catch {
-        await SecureStore.deleteItemAsync(TOKEN_KEY);
-        await SecureStore.deleteItemAsync(API_KEY_LOCAL_KEY);
+        await storageDelete(TOKEN_KEY);
+        await storageDelete(API_KEY_LOCAL_KEY);
         setToken('');
         setUser(null);
         setApiKeyConfigured(false);
@@ -204,8 +246,8 @@ export default function App() {
 
     setBusy(true);
     try {
-      await SecureStore.setItemAsync(COMPANION_URL_KEY, normalizedCompanion);
-      await SecureStore.setItemAsync(ERP_URL_KEY, normalizedErp);
+      await storageSet(COMPANION_URL_KEY, normalizedCompanion);
+      await storageSet(ERP_URL_KEY, normalizedErp);
       setCompanionBaseUrl(normalizedCompanion);
       setErpBaseUrl(normalizedErp);
       setConfigReady(true);
@@ -218,10 +260,10 @@ export default function App() {
   };
 
   const resetUrls = async () => {
-    await SecureStore.deleteItemAsync(COMPANION_URL_KEY);
-    await SecureStore.deleteItemAsync(ERP_URL_KEY);
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await SecureStore.deleteItemAsync(API_KEY_LOCAL_KEY);
+    await storageDelete(COMPANION_URL_KEY);
+    await storageDelete(ERP_URL_KEY);
+    await storageDelete(TOKEN_KEY);
+    await storageDelete(API_KEY_LOCAL_KEY);
     setConfigReady(false);
     setCompanionBaseUrl('');
     setErpBaseUrl('');
@@ -252,7 +294,7 @@ export default function App() {
         body: JSON.stringify({ email, password }),
       });
 
-      await SecureStore.setItemAsync(TOKEN_KEY, login.token);
+      await storageSet(TOKEN_KEY, login.token);
       setToken(login.token);
       setUser(login.user);
       setApiKeyConfigured(Boolean(login.user?.keyConfigured));
@@ -272,7 +314,7 @@ export default function App() {
         body: JSON.stringify({ apiKey: erpApiKey }),
       }, token);
 
-      await SecureStore.setItemAsync(API_KEY_LOCAL_KEY, erpApiKey);
+      await storageSet(API_KEY_LOCAL_KEY, erpApiKey);
       setApiKeyConfigured(true);
       setErpApiKey('');
       Alert.alert('Connected', 'Your ERP API key is verified and saved securely.');
@@ -290,8 +332,8 @@ export default function App() {
       }
     } catch {
     } finally {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
-      await SecureStore.deleteItemAsync(API_KEY_LOCAL_KEY);
+      await storageDelete(TOKEN_KEY);
+      await storageDelete(API_KEY_LOCAL_KEY);
       setToken('');
       setUser(null);
       setApiKeyConfigured(false);
