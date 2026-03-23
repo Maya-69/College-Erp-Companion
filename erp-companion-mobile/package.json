@@ -1,0 +1,26 @@
+{
+  "name": "erp-companion-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "start:clear": "expo start -c",
+    "start:tunnel": "expo start --tunnel -c",
+    "start:tunnel:8082": "expo start --tunnel -c --port 8082",
+    "start:lan": "expo start --lan -c",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "babel-preset-expo": "~54.0.10",
+    "expo": "^54.0.33",
+    "expo-asset": "~12.0.12",
+    "expo-secure-store": "~15.0.8",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-web": "^0.21.0"
+  }
+}

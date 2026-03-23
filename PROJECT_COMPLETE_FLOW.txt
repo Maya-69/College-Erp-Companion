@@ -1,0 +1,178 @@
+COMPLETE PROJECT OVERVIEW
+=========================
+
+1) WHAT THE PROJECT IS
+----------------------
+This project is a two-system setup:
+
+A) Primary System (Web ERP)
+- Folder: college-erp-mern
+- Stack: MERN
+- Database: MongoDB (college_erp)
+- Purpose: Full ERP web portal for admin and students.
+
+B) Companion System (Mobile + Backend)
+- Mobile folder: erp-companion-mobile (Expo React Native)
+- Backend folder: erp-companion-app (Express + local NeDB files)
+- Purpose: Fast mobile workflow using ERP API key.
+
+Both systems are isolated at database level and communicate only via HTTP APIs.
+
+
+2) WHY IT WORKS
+---------------
+- ERP website uses JWT auth for browser users.
+- ERP also issues API keys for students.
+- Companion backend validates/stores API key and uses it to call ERP public endpoints.
+- Mobile app talks only to companion backend with app-account token.
+- Companion backend talks to ERP via API key endpoints.
+- No direct DB sharing between ERP and companion backend.
+
+
+3) DATA FLOW (END-TO-END)
+-------------------------
+A) Web ERP flow
+1. User logs in on ERP web.
+2. JWT token returned by /api/auth/login.
+3. Student/admin uses web features directly.
+
+B) API key generation flow
+1. Student in ERP web calls /api/account/api-key/generate.
+2. ERP generates raw key (erp_xxx), hashes it (sha256 + salt), stores hash.
+3. Raw key shown once to user.
+
+C) Mobile flow
+1. User opens mobile app.
+2. Mobile app first asks for Companion URL and ERP URL (saved locally).
+3. User creates/logs in app account via companion backend (/api/app/register, /api/app/login).
+4. Mobile app sends ERP API key to companion backend (/api/app/erp-key).
+5. Companion backend verifies the key by calling ERP /api/public/me.
+6. Companion backend stores encrypted API key in local companion DB.
+7. Mobile app requests marks/events/holidays/documents from companion backend.
+8. Companion backend forwards calls to ERP /api/public/* and returns JSON response.
+
+
+4) MAIN BACKEND FUNCTIONS AND CALL CHAIN
+----------------------------------------
+ERP backend file: college-erp-mern/server/index.js
+
+Core middleware
+- auth(): JWT validation for ERP web endpoints.
+- adminOnly(): role guard.
+- apiKeyAuth(): validates x-api-key by comparing stored hash.
+- apiKeyLimiter/globalApiLimiter: rate limiting.
+
+Key ERP routes
+- POST /api/auth/register
+- POST /api/auth/login
+- GET /api/account/api-key/status
+- POST /api/account/api-key/generate
+- DELETE /api/account/api-key/revoke
+- GET /api/public/me
+- GET /api/public/marks
+- GET /api/public/events
+- GET /api/public/holidays
+- POST /api/public/documents/request
+- GET /api/public/documents/requests
+- POST /api/seed
+
+Companion backend file: erp-companion-app/server/index.js
+
+Core utilities
+- encryptApiKey()/decryptApiKey(): AES-256-GCM for stored API keys.
+- authAppUser(): bearer token auth for app account routes.
+- erpRequest(): generic HTTP client to ERP API.
+- getUserApiKey(): fetch + decrypt ERP key for app user.
+
+App account routes
+- POST /api/app/register
+- POST /api/app/login
+- POST /api/app/logout
+- GET /api/app/me
+- POST /api/app/erp-key
+- GET /api/app/erp-key/status
+
+Proxy routes (calls ERP)
+- GET /api/app/erp/profile -> /api/public/me
+- GET /api/app/erp/marks -> /api/public/marks
+- GET /api/app/erp/events -> /api/public/events
+- GET /api/app/erp/holidays -> /api/public/holidays
+- POST /api/app/erp/documents/request -> /api/public/documents/request
+- GET /api/app/erp/documents/requests -> /api/public/documents/requests
+
+
+5) MOBILE UI FLOW DETAILS
+-------------------------
+Mobile app file: erp-companion-mobile/App.js
+
+Startup states
+- booting: loading secure storage and config.
+- configReady: URL configuration done.
+- token: app account login token.
+- apiKeyConfigured: ERP key linked.
+
+Section-driven UI
+- section buttons: Events Calendar | Marksheet | Document
+- selectedSection controls which panel is rendered below.
+- Events section is default/home section.
+
+Function calls from UI
+- saveUrls() -> stores companion/erp URLs.
+- handleRegisterOrLogin() -> /api/app/register or /api/app/login.
+- saveErpApiKey() -> /api/app/erp-key.
+- loadEventsAndHolidays() -> /api/app/erp/events + /api/app/erp/holidays.
+- loadMarks() -> /api/app/erp/marks?semester=n.
+- submitDocumentRequest() -> /api/app/erp/documents/request.
+
+
+6) DATABASES USED
+-----------------
+A) ERP DB (MongoDB)
+- URI default: mongodb://localhost:27017/college_erp
+- Collections: users, results, documents, documentrequests, events, holidays, notices
+
+B) Companion DBs (NeDB files)
+- erp-companion-app/server/data/companion-users.db
+- erp-companion-app/server/data/companion-tokens.db
+- erp-companion-app/server/data/companion-audit.db
+
+
+7) SEEDED ERP USERS AND RESULTS
+-------------------------------
+Seed endpoint creates admin and students:
+- admin@vit.edu.in
+- vicky@vit.edu.in
+- mayuresh@vit.edu.in
+- parag@vit.edu.in
+- sunil@vit.edu.in
+- rohit@vit.edu.in
+
+All student password: student123
+Admin password: admin123
+
+Sem 5 results are present for Vicky and generated for requested additional students.
+
+
+8) RUN ORDER (DEVELOPMENT)
+--------------------------
+1. ERP backend: college-erp-mern/server -> node index.js
+2. ERP frontend: college-erp-mern/client -> npm run dev
+3. Companion backend: erp-companion-app -> npm run start
+4. Mobile app: erp-companion-mobile -> npm run start (or npm run start:tunnel)
+
+
+9) NETWORK NOTES
+----------------
+- If testing on phone, use reachable IP/URL in mobile URL setup screen.
+- Tailscale can be used for stable private addressing.
+- Cloudflare tunnel can be added later for public testing.
+
+
+10) WHAT TO TEST AFTER CHANGES
+------------------------------
+1. ERP web login for admin and students.
+2. Student API key generation.
+3. Mobile URL setup + app account login.
+4. ERP API key linking in mobile app.
+5. Events calendar, marksheet retrieval, document request from mobile sections.
+6. Ensure no direct DB access between ERP and companion backend.

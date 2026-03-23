@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "ERP Companion",
+    "slug": "erp-companion-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#F1F7F4"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.local.erpcompanion"
+    },
+    "ios": {
+      "bundleIdentifier": "com.local.erpcompanion"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-secure-store"
+    ]
+  }
+}

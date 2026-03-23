@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+build/
+*.js.map
+*.css.map
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Runtime
+.next/
+.expo/
+expo-build/
+.cache/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# App-specific
+server/data/
+erp-companion-app/server/data/
+college-erp-mern/client/.vite/
+college-erp-mern/client/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+.turbo/
+.env.example (keep this)
+.ignore
