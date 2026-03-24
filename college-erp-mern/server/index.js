@@ -115,13 +115,17 @@ const EventSchema = new mongoose.Schema({
   date: Date,
   time: String,
   venue: String,
+  isHoliday: { type: Boolean, default: false },
+  reason: String,
   conducted: { type: Boolean, default: false },
   inst: String
 });
 
 const HolidaySchema = new mongoose.Schema({
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null },
   date: Date,
-  name: String
+  name: String,
+  reason: String
 });
 
 const NoticeSchema = new mongoose.Schema({
@@ -355,8 +359,93 @@ app.delete('/api/documents/:id', auth, adminOnly, async (req, res) => {
 
 // Events Routes
 app.post('/api/events', auth, adminOnly, async (req, res) => {
-  const event = await Event.create(req.body);
-  res.json(event);
+  try {
+    const { title, owner, forRole, date, time, venue, inst, isHoliday, reason } = req.body;
+    if (!title || !forRole || !date) {
+      return res.status(400).json({ error: 'title, forRole and date are required' });
+    }
+    if (isHoliday && !sanitizeText(reason, 240)) {
+      return res.status(400).json({ error: 'Reason is required for holidays' });
+    }
+
+    const event = await Event.create({
+      title: sanitizeText(title, 120),
+      owner: sanitizeText(owner, 100),
+      forRole: sanitizeText(forRole, 20),
+      date,
+      time: sanitizeText(time, 30),
+      venue: sanitizeText(venue, 120),
+      inst: sanitizeText(inst, 30),
+      isHoliday: Boolean(isHoliday),
+      reason: sanitizeText(reason, 240)
+    });
+
+    if (event.isHoliday) {
+      await Holiday.findOneAndUpdate(
+        { eventId: event._id },
+        {
+          eventId: event._id,
+          date: event.date,
+          name: event.title,
+          reason: event.reason
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    res.json(event);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to add event' });
+  }
+});
+
+app.put('/api/events/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { title, owner, forRole, date, time, venue, inst, isHoliday, reason } = req.body;
+    if (!title || !forRole || !date) {
+      return res.status(400).json({ error: 'title, forRole and date are required' });
+    }
+    if (isHoliday && !sanitizeText(reason, 240)) {
+      return res.status(400).json({ error: 'Reason is required for holidays' });
+    }
+
+    const event = await Event.findByIdAndUpdate(
+      req.params.id,
+      {
+        title: sanitizeText(title, 120),
+        owner: sanitizeText(owner, 100),
+        forRole: sanitizeText(forRole, 20),
+        date,
+        time: sanitizeText(time, 30),
+        venue: sanitizeText(venue, 120),
+        inst: sanitizeText(inst, 30),
+        isHoliday: Boolean(isHoliday),
+        reason: sanitizeText(reason, 240)
+      },
+      { new: true }
+    );
+
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    if (event.isHoliday) {
+      await Holiday.findOneAndUpdate(
+        { eventId: event._id },
+        {
+          eventId: event._id,
+          date: event.date,
+          name: event.title,
+          reason: event.reason
+        },
+        { upsert: true, new: true }
+      );
+    } else {
+      await Holiday.findOneAndDelete({ eventId: event._id });
+    }
+
+    res.json(event);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Failed to update event' });
+  }
 });
 
 app.get('/api/events', auth, async (req, res) => {
@@ -366,12 +455,19 @@ app.get('/api/events', auth, async (req, res) => {
 
 app.delete('/api/events/:id', auth, adminOnly, async (req, res) => {
   await Event.findByIdAndDelete(req.params.id);
+  await Holiday.findOneAndDelete({ eventId: req.params.id });
   res.json({ message: 'Event deleted' });
 });
 
 // Holidays Routes
 app.post('/api/holidays', auth, adminOnly, async (req, res) => {
-  const holiday = await Holiday.create(req.body);
+  const { date, name, reason } = req.body;
+  if (!date || !name) return res.status(400).json({ error: 'date and name are required' });
+  const holiday = await Holiday.create({
+    date,
+    name: sanitizeText(name, 120),
+    reason: sanitizeText(reason, 240)
+  });
   res.json(holiday);
 });
 
