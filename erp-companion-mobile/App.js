@@ -120,6 +120,7 @@ export default function App() {
   const [erpApiKey, setErpApiKey] = useState('');
 
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [semester, setSemester] = useState('2');
   const [documentType, setDocumentType] = useState('transcript');
   const [documentPurpose, setDocumentPurpose] = useState('Need transcript for internship');
@@ -232,15 +233,25 @@ export default function App() {
   }, [configReady, token, apiKeyConfigured, user]);
 
   const saveUrls = async () => {
+    setError('');
     const normalizedCompanion = companionBaseUrlInput.trim().replace(/\/+$/, '');
     const normalizedErp = erpBaseUrlInput.trim().replace(/\/+$/, '');
 
+    if (!normalizedCompanion) {
+      setError('Companion API URL is required');
+      return;
+    }
+    if (!normalizedErp) {
+      setError('ERP URL is required');
+      return;
+    }
+
     if (!/^https?:\/\//i.test(normalizedCompanion)) {
-      Alert.alert('Invalid URL', 'Companion API URL must start with http:// or https://');
+      setError('Companion URL must start with http:// or https://');
       return;
     }
     if (!/^https?:\/\//i.test(normalizedErp)) {
-      Alert.alert('Invalid URL', 'ERP URL must start with http:// or https://');
+      setError('ERP URL must start with http:// or https://');
       return;
     }
 
@@ -251,9 +262,10 @@ export default function App() {
       setCompanionBaseUrl(normalizedCompanion);
       setErpBaseUrl(normalizedErp);
       setConfigReady(true);
-      Alert.alert('Saved', 'URLs saved. You can change them later from this screen by logging out and re-opening URL setup.');
-    } catch (error) {
-      Alert.alert('Failed', error.message || 'Could not save URLs');
+      setError('');
+      Alert.alert('Saved', 'URLs configured. Next: Login.');
+    } catch (err) {
+      setError(err.message || 'Could not save URLs. Check device storage.');
     } finally {
       setBusy(false);
     }
@@ -280,6 +292,20 @@ export default function App() {
   };
 
   const handleRegisterOrLogin = async () => {
+    setError('');
+    if (!email) {
+      setError('Email is required');
+      return;
+    }
+    if (!password) {
+      setError('Password is required');
+      return;
+    }
+    if (authMode === 'register' && !name) {
+      setError('Name is required for registration');
+      return;
+    }
+
     setBusy(true);
     try {
       if (authMode === 'register') {
@@ -299,14 +325,34 @@ export default function App() {
       setUser(login.user);
       setApiKeyConfigured(Boolean(login.user?.keyConfigured));
       setPassword('');
-    } catch (error) {
-      Alert.alert('Authentication failed', error.message);
+      setError('');
+    } catch (err) {
+      const msg = err.message || 'Authentication failed';
+      if (msg.includes('401') || msg.includes('Invalid')) {
+        setError('Incorrect email or password');
+      } else if (msg.includes('already exists')) {
+        setError('Email already registered. Try login instead.');
+      } else if (msg.includes('network') || msg.includes('fetch')) {
+        setError('Network error. Check your URL and connection.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
   };
 
   const saveErpApiKey = async () => {
+    setError('');
+    if (!erpApiKey.trim()) {
+      setError('API key is required');
+      return;
+    }
+    if (!erpApiKey.startsWith('erp_')) {
+      setError('Invalid key format. Key must start with "erp_"');
+      return;
+    }
+
     setBusy(true);
     try {
       await request({ baseUrl: companionBaseUrl, endpoint: '/api/app/erp-key' }, {
@@ -317,9 +363,17 @@ export default function App() {
       await storageSet(API_KEY_LOCAL_KEY, erpApiKey);
       setApiKeyConfigured(true);
       setErpApiKey('');
-      Alert.alert('Connected', 'Your ERP API key is verified and saved securely.');
-    } catch (error) {
-      Alert.alert('Key setup failed', error.message);
+      setError('');
+      Alert.alert('Connected', 'Your ERP API key verified. You can now use the app.');
+    } catch (err) {
+      const msg = err.message || 'Key setup failed';
+      if (msg.includes('invalid') || msg.includes('Invalid')) {
+        setError('Invalid API key. Check with admin or regenerate in ERP dashboard.');
+      } else if (msg.includes('network') || msg.includes('fetch')) {
+        setError('Network error. Check your connection.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -449,6 +503,7 @@ export default function App() {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Enter Backend URLs</Text>
             <Text style={styles.panelHint}>For testing, enter IP + port. Later with static IP/domain, update once and app will skip this step.</Text>
+            {error && <View style={styles.errorContainer}><Text style={styles.errorContainerText}>{error}</Text></View>}
             <TextInput
               style={styles.input}
               value={companionBaseUrlInput}
@@ -482,6 +537,8 @@ export default function App() {
               </Pressable>
             </View>
 
+            {error && <View style={styles.errorContainer}><Text style={styles.errorContainerText}>{error}</Text></View>}
+
             {authMode === 'register' && (
               <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Full name" placeholderTextColor="#90A4AE" />
             )}
@@ -491,6 +548,9 @@ export default function App() {
             <Pressable style={styles.primaryButton} onPress={handleRegisterOrLogin} disabled={busy}>
               <Text style={styles.primaryButtonText}>{busy ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create Account & Login'}</Text>
             </Pressable>
+            <Pressable style={styles.changeUrlsButton} onPress={resetUrls}>
+              <Text style={styles.changeUrlsText}>Change URLs</Text>
+            </Pressable>
           </View>
         )}
 
@@ -498,6 +558,7 @@ export default function App() {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Enter ERP API Key</Text>
             <Text style={styles.panelHint}>Generate this key from ERP dashboard → API Access.</Text>
+            {error && <View style={styles.errorContainer}><Text style={styles.errorContainerText}>{error}</Text></View>}
             <TextInput
               style={styles.input}
               value={erpApiKey}
@@ -508,6 +569,9 @@ export default function App() {
             />
             <Pressable style={styles.primaryButton} onPress={saveErpApiKey} disabled={busy}>
               <Text style={styles.primaryButtonText}>{busy ? 'Verifying...' : 'Save and Continue'}</Text>
+            </Pressable>
+            <Pressable style={styles.changeUrlsButton} onPress={resetUrls}>
+              <Text style={styles.changeUrlsText}>Change URLs</Text>
             </Pressable>
           </View>
         )}
@@ -849,4 +913,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetConfigText: { color: '#3A5E7D', fontWeight: '700' },
+  changeUrlsButton: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D9E6E0',
+    backgroundColor: '#F9FCFA',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  changeUrlsText: { color: '#286F59', fontWeight: '600', fontSize: 14 },
+  inputError: { borderColor: '#EF5350', borderWidth: 1.5 },
+  errorText: { color: '#D32F2F', fontSize: 12, fontWeight: '600', marginTop: -8, marginBottom: 12 },
+  errorContainer: { backgroundColor: '#FFEBEE', borderWidth: 1, borderColor: '#EF5350', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
+  errorContainerText: { color: '#B71C1C', fontSize: 13, lineHeight: 18 },
 });
