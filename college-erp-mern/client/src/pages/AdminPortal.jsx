@@ -515,18 +515,60 @@ function EventsManager() {
   const { token } = useAuth();
   const [events, setEvents] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ title: '', owner: '', forRole: 'STUDENT', date: '', time: '', venue: '', inst: 'VIT' });
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ title: '', owner: '', forRole: 'STUDENT', date: '', time: '', venue: '', inst: 'VIT', isHoliday: false, reason: '' });
   const [loading, setLoading] = useState(false);
 
   const fetchEvents = () => api('/events', {}, token).then(setEvents).catch(console.error);
   useEffect(() => { fetchEvents(); }, []);
 
+  const resetForm = () => {
+    setForm({ title: '', owner: '', forRole: 'STUDENT', date: '', time: '', venue: '', inst: 'VIT', isHoliday: false, reason: '' });
+    setEditingId(null);
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try { await api('/events', { method: 'POST', body: JSON.stringify(form) }, token); fetchEvents(); setShowModal(false); setForm({ title: '', owner: '', forRole: 'STUDENT', date: '', time: '', venue: '', inst: 'VIT' }); }
+    try {
+      const payload = {
+        title: form.title,
+        owner: form.owner,
+        forRole: form.forRole,
+        date: form.date,
+        time: form.time,
+        venue: form.venue,
+        inst: form.inst,
+        isHoliday: form.isHoliday,
+        reason: form.reason
+      };
+      if (editingId) {
+        await api(`/events/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) }, token);
+      } else {
+        await api('/events', { method: 'POST', body: JSON.stringify(payload) }, token);
+      }
+      fetchEvents();
+      setShowModal(false);
+      resetForm();
+    }
     catch (e) { alert(e.message); }
     setLoading(false);
+  };
+
+  const handleEdit = (eventItem) => {
+    setEditingId(eventItem._id);
+    setForm({
+      title: eventItem.title || '',
+      owner: eventItem.owner || '',
+      forRole: eventItem.forRole || 'STUDENT',
+      date: eventItem.date ? new Date(eventItem.date).toISOString().slice(0, 10) : '',
+      time: eventItem.time || '',
+      venue: eventItem.venue || '',
+      inst: eventItem.inst || 'VIT',
+      isHoliday: Boolean(eventItem.isHoliday),
+      reason: eventItem.reason || ''
+    });
+    setShowModal(true);
   };
 
   const handleDelete = async (id) => {
@@ -539,22 +581,26 @@ function EventsManager() {
     <div style={{ padding: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div><h2 style={{ color: 'var(--navy)' }}>Events Management</h2></div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>+ Add Event</button>
+        <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>+ Add Event</button>
       </div>
       <div className="card">
         <table>
-          <thead><tr><th>Inst</th><th>Activity Name</th><th>Owner</th><th>For</th><th>Date</th><th>Time</th><th>Venue</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Type</th><th>Activity Name</th><th>Reason</th><th>Owner</th><th>For</th><th>Date</th><th>Time</th><th>Venue</th><th>Actions</th></tr></thead>
           <tbody>
             {events.map(e => (
               <tr key={e._id}>
-                <td><span className="badge badge-gold">{e.inst}</span></td>
+                <td><span className={`badge ${e.isHoliday ? 'badge-danger' : 'badge-gold'}`}>{e.isHoliday ? 'Holiday' : (e.inst || 'Event')}</span></td>
                 <td style={{ fontWeight: 600, maxWidth: 220 }}>{e.title}</td>
-                <td style={{ fontSize: 13, color: 'var(--text-mid)' }}>{e.owner}</td>
+                <td style={{ fontSize: 13, color: 'var(--text-mid)', maxWidth: 220 }}>{e.reason || '—'}</td>
+                <td style={{ fontSize: 13, color: 'var(--text-mid)' }}>{e.owner || '—'}</td>
                 <td><span className="badge badge-info">{e.forRole}</span></td>
                 <td>{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
-                <td>{e.time}</td>
+                <td>{e.time || '—'}</td>
                 <td>{e.venue || '—'}</td>
-                <td><button className="btn btn-danger btn-sm" onClick={() => handleDelete(e._id)}>Delete</button></td>
+                <td style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-outline btn-sm" onClick={() => handleEdit(e)}>Edit</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(e._id)}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -566,24 +612,29 @@ function EventsManager() {
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 560 }}>
             <div className="modal-header">
-              <h3>Add Event</h3>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}>✕</button>
+              <h3>{editingId ? 'Edit Event' : 'Add Event'}</h3>
+              <button onClick={() => { setShowModal(false); resetForm(); }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
             <form onSubmit={handleAdd}>
               <div className="modal-body">
                 <div className="grid-2">
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="label">Activity Name</label><input className="input-field" value={form.title} onChange={e => setForm({...form, title: e.target.value})} required /></div>
-                  <div className="form-group"><label className="label">Activity Owner</label><input className="input-field" value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} required /></div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input id="isHoliday" type="checkbox" checked={form.isHoliday} onChange={e => setForm({ ...form, isHoliday: e.target.checked, reason: e.target.checked ? form.reason : '' })} />
+                    <label htmlFor="isHoliday" className="label" style={{ marginBottom: 0 }}>This is a holiday</label>
+                  </div>
+                  {form.isHoliday && <div className="form-group" style={{ gridColumn: '1 / -1' }}><label className="label">Why is this holiday?</label><input className="input-field" value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} required placeholder="e.g. National holiday / Festival" /></div>}
+                  <div className="form-group"><label className="label">Activity Owner (Optional)</label><input className="input-field" value={form.owner} onChange={e => setForm({...form, owner: e.target.value})} /></div>
                   <div className="form-group"><label className="label">Institute</label><select className="input-field" value={form.inst} onChange={e => setForm({...form, inst: e.target.value})}><option>VIT</option><option>VSIT</option><option>VIVA</option></select></div>
                   <div className="form-group"><label className="label">Date</label><input className="input-field" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required /></div>
-                  <div className="form-group"><label className="label">Time</label><input className="input-field" type="time" value={form.time} onChange={e => setForm({...form, time: e.target.value})} /></div>
-                  <div className="form-group"><label className="label">Venue</label><input className="input-field" value={form.venue} onChange={e => setForm({...form, venue: e.target.value})} placeholder="e.g. X-020" /></div>
+                  <div className="form-group"><label className="label">Time (Optional)</label><input className="input-field" type="time" value={form.time} onChange={e => setForm({...form, time: e.target.value})} /></div>
+                  <div className="form-group"><label className="label">Venue (Optional)</label><input className="input-field" value={form.venue} onChange={e => setForm({...form, venue: e.target.value})} placeholder="e.g. X-020" /></div>
                   <div className="form-group"><label className="label">For</label><select className="input-field" value={form.forRole} onChange={e => setForm({...form, forRole: e.target.value})}><option>STUDENT</option><option>STAFF</option><option>ALL</option></select></div>
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Event'}</button>
+                <button type="button" className="btn btn-outline" onClick={() => { setShowModal(false); resetForm(); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? (editingId ? 'Updating...' : 'Adding...') : (editingId ? 'Update Event' : 'Add Event')}</button>
               </div>
             </form>
           </div>
