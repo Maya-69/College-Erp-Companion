@@ -181,6 +181,28 @@ const apiKeyAuth = async (req, res, next) => {
   }
 };
 
+const resolvePublicStudent = async (req) => {
+  const apiKey = extractApiKey(req);
+  if (apiKey && apiKey.startsWith('erp_')) {
+    const apiKeyHash = hashApiKey(apiKey);
+    const user = await User.findOne({ apiKeyHash }).select('name email role rollNumber semester year department mobile');
+    if (user) return user;
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+  if (!token) return null;
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id).select('name email role rollNumber semester year department mobile');
+    if (!user || user.role !== 'student') return null;
+    return user;
+  } catch {
+    return null;
+  }
+};
+
 // ======================== ROUTES ========================
 
 // Auth Routes
@@ -531,6 +553,9 @@ app.get('/api/public/holidays', apiKeyLimiter, apiKeyAuth, async (_req, res) => 
 });
 
 app.post('/api/public/documents/request', apiKeyLimiter, apiKeyAuth, async (req, res) => {
+  const student = req.apiUser || await resolvePublicStudent(req);
+  if (!student) return res.status(401).json({ error: 'Valid API key or student session required' });
+
   const type = sanitizeText(req.body.type, 40);
   const purpose = sanitizeText(req.body.purpose, 200);
   if (!DOCUMENT_TYPES.includes(type)) {
@@ -541,8 +566,8 @@ app.post('/api/public/documents/request', apiKeyLimiter, apiKeyAuth, async (req,
   }
 
   const request = await DocumentRequest.create({
-    studentId: req.apiUser._id,
-    rollNumber: req.apiUser.rollNumber,
+    studentId: student._id,
+    rollNumber: student.rollNumber,
     type,
     purpose,
     status: 'pending'
@@ -558,7 +583,10 @@ app.post('/api/public/documents/request', apiKeyLimiter, apiKeyAuth, async (req,
 });
 
 app.get('/api/public/documents/requests', apiKeyLimiter, apiKeyAuth, async (req, res) => {
-  const requests = await DocumentRequest.find({ studentId: req.apiUser._id }).sort({ createdAt: -1 });
+  const student = req.apiUser || await resolvePublicStudent(req);
+  if (!student) return res.status(401).json({ error: 'Valid API key or student session required' });
+
+  const requests = await DocumentRequest.find({ studentId: student._id }).sort({ createdAt: -1 });
   res.json(requests);
 });
 

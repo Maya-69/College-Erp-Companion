@@ -16,6 +16,7 @@ import * as SecureStore from 'expo-secure-store';
 
 const TOKEN_KEY = 'companion_app_token';
 const API_KEY_LOCAL_KEY = 'companion_local_erp_api_key';
+const SCRAPER_LOGIN_URL_KEY = 'companion_scraper_login_url';
 const COMPANION_URL_KEY = 'companion_base_url';
 const ERP_URL_KEY = 'erp_base_url';
 const DEFAULT_COMPANION_BASE = process.env.EXPO_PUBLIC_COMPANION_API || 'http://10.0.2.2:5001';
@@ -111,13 +112,18 @@ export default function App() {
   const [erpBaseUrlInput, setErpBaseUrlInput] = useState(DEFAULT_ERP_BASE);
   const [token, setToken] = useState('');
   const [user, setUser] = useState(null);
+  const [integrationMode, setIntegrationMode] = useState('api');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [scraperConfigured, setScraperConfigured] = useState(false);
 
   const [authMode, setAuthMode] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [erpApiKey, setErpApiKey] = useState('');
+  const [erpLoginId, setErpLoginId] = useState('');
+  const [erpLoginPassword, setErpLoginPassword] = useState('');
+  const [erpLoginUrl, setErpLoginUrl] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -186,6 +192,7 @@ export default function App() {
       try {
         const savedCompanionBase = await storageGet(COMPANION_URL_KEY);
         const savedErpBase = await storageGet(ERP_URL_KEY);
+        const savedScraperLoginUrl = await storageGet(SCRAPER_LOGIN_URL_KEY);
         const savedToken = await storageGet(TOKEN_KEY);
         const localKey = await storageGet(API_KEY_LOCAL_KEY);
 
@@ -198,6 +205,7 @@ export default function App() {
 
         setCompanionBaseUrl(savedCompanionBase);
         setErpBaseUrl(savedErpBase || DEFAULT_ERP_BASE);
+        setErpLoginUrl(savedScraperLoginUrl || savedErpBase || DEFAULT_ERP_BASE);
         setCompanionBaseUrlInput(savedCompanionBase);
         setErpBaseUrlInput(savedErpBase || DEFAULT_ERP_BASE);
         setConfigReady(true);
@@ -207,17 +215,23 @@ export default function App() {
           return;
         }
 
-        const me = await request({ baseUrl: savedCompanionBase, endpoint: '/api/app/me' }, {}, savedToken);
-        const keyStatus = await request({ baseUrl: savedCompanionBase, endpoint: '/api/app/erp-key/status' }, {}, savedToken);
+        const [me, modeState] = await Promise.all([
+          request({ baseUrl: savedCompanionBase, endpoint: '/api/app/me' }, {}, savedToken),
+          request({ baseUrl: savedCompanionBase, endpoint: '/api/app/integration-mode' }, {}, savedToken),
+        ]);
+
         setToken(savedToken);
         setUser(me.user);
-        setApiKeyConfigured(Boolean(keyStatus.keyConfigured || localKey));
+        setIntegrationMode(modeState.mode || 'api');
+        setApiKeyConfigured(Boolean(modeState.keyConfigured || localKey));
+        setScraperConfigured(Boolean(modeState.scraperConfigured));
       } catch {
         await storageDelete(TOKEN_KEY);
         await storageDelete(API_KEY_LOCAL_KEY);
         setToken('');
         setUser(null);
         setApiKeyConfigured(false);
+        setScraperConfigured(false);
       } finally {
         setBooting(false);
       }
@@ -228,9 +242,10 @@ export default function App() {
   const title = useMemo(() => {
     if (!configReady) return 'Configure API URLs';
     if (!token) return 'SafePath ERP Companion';
-    if (!apiKeyConfigured) return 'Connect ERP API Key';
+    if (integrationMode === 'scraper' && !scraperConfigured) return 'Connect ERP Login (Scraper)';
+    if (integrationMode === 'api' && !apiKeyConfigured) return 'Connect ERP API Key';
     return `Welcome, ${user?.name || 'User'}`;
-  }, [configReady, token, apiKeyConfigured, user]);
+  }, [configReady, token, apiKeyConfigured, scraperConfigured, integrationMode, user]);
 
   const saveUrls = async () => {
     setError('');
@@ -274,6 +289,7 @@ export default function App() {
   const resetUrls = async () => {
     await storageDelete(COMPANION_URL_KEY);
     await storageDelete(ERP_URL_KEY);
+    await storageDelete(SCRAPER_LOGIN_URL_KEY);
     await storageDelete(TOKEN_KEY);
     await storageDelete(API_KEY_LOCAL_KEY);
     setConfigReady(false);
@@ -281,7 +297,9 @@ export default function App() {
     setErpBaseUrl('');
     setToken('');
     setUser(null);
+    setIntegrationMode('api');
     setApiKeyConfigured(false);
+    setScraperConfigured(false);
     setCompanionBaseUrlInput(DEFAULT_COMPANION_BASE);
     setErpBaseUrlInput(DEFAULT_ERP_BASE);
     setMarks([]);
@@ -289,6 +307,32 @@ export default function App() {
     setHolidays([]);
     setDocumentRequests([]);
     setSelectedSection('events');
+  };
+
+  const refreshIntegrationState = async (authToken) => {
+    const modeState = await request({ baseUrl: companionBaseUrl, endpoint: '/api/app/integration-mode' }, {}, authToken);
+    const currentMode = modeState.mode || 'api';
+    setIntegrationMode(currentMode);
+    setApiKeyConfigured(Boolean(modeState.keyConfigured));
+    setScraperConfigured(Boolean(modeState.scraperConfigured));
+  };
+
+  const switchIntegrationMode = async (mode) => {
+    if (!token || busy || integrationMode === mode) return;
+    setBusy(true);
+    setError('');
+    try {
+      await request(
+        { baseUrl: companionBaseUrl, endpoint: '/api/app/integration-mode' },
+        { method: 'POST', body: JSON.stringify({ mode }) },
+        token
+      );
+      await refreshIntegrationState(token);
+    } catch (err) {
+      setError(err.message || 'Failed to switch integration mode');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleRegisterOrLogin = async () => {
@@ -323,7 +367,8 @@ export default function App() {
       await storageSet(TOKEN_KEY, login.token);
       setToken(login.token);
       setUser(login.user);
-      setApiKeyConfigured(Boolean(login.user?.keyConfigured));
+      setIntegrationMode(login.user?.integrationMode || 'api');
+      await refreshIntegrationState(login.token);
       setPassword('');
       setError('');
     } catch (err) {
@@ -361,6 +406,7 @@ export default function App() {
       }, token);
 
       await storageSet(API_KEY_LOCAL_KEY, erpApiKey);
+      setIntegrationMode('api');
       setApiKeyConfigured(true);
       setErpApiKey('');
       setError('');
@@ -371,6 +417,52 @@ export default function App() {
         setError('Invalid API key. Check with admin or regenerate in ERP dashboard.');
       } else if (msg.includes('network') || msg.includes('fetch')) {
         setError('Network error. Check your connection.');
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveScraperCredentials = async () => {
+    setError('');
+    if (!erpLoginId.trim()) {
+      setError('ERP login ID/email is required');
+      return;
+    }
+    if (!erpLoginPassword.trim()) {
+      setError('ERP password is required');
+      return;
+    }
+
+    const normalizedLoginUrl = (erpLoginUrl.trim() || erpBaseUrl).replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(normalizedLoginUrl)) {
+      setError('ERP login URL must start with http:// or https://');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await request({ baseUrl: companionBaseUrl, endpoint: '/api/app/scraper-credentials' }, {
+        method: 'POST',
+        body: JSON.stringify({
+          loginUrl: normalizedLoginUrl,
+          loginId: erpLoginId.trim(),
+          password: erpLoginPassword,
+        }),
+      }, token);
+
+      await storageSet(SCRAPER_LOGIN_URL_KEY, normalizedLoginUrl);
+      setIntegrationMode('scraper');
+      setScraperConfigured(true);
+      setError('');
+      setErpLoginPassword('');
+      Alert.alert('Connected', 'Scraper login verified. You can now use scraper mode.');
+    } catch (err) {
+      const msg = err.message || 'Scraper setup failed';
+      if (msg.includes('invalid') || msg.includes('Invalid') || msg.includes('Login failed')) {
+        setError('Scraper login failed. Verify ERP credentials and try again.');
       } else {
         setError(msg);
       }
@@ -390,7 +482,9 @@ export default function App() {
       await storageDelete(API_KEY_LOCAL_KEY);
       setToken('');
       setUser(null);
+      setIntegrationMode('api');
       setApiKeyConfigured(false);
+      setScraperConfigured(false);
       setSelectedSection('events');
       setMarks([]);
       setEvents([]);
@@ -465,17 +559,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!configReady || !token || !apiKeyConfigured) return;
+    const modeReady = integrationMode === 'scraper' ? scraperConfigured : apiKeyConfigured;
+    if (!configReady || !token || !modeReady) return;
     if (selectedSection !== 'events') return;
     if (events.length || holidays.length) return;
     loadEventsAndHolidays();
-  }, [configReady, token, apiKeyConfigured, selectedSection]);
+  }, [configReady, token, apiKeyConfigured, scraperConfigured, integrationMode, selectedSection]);
 
   useEffect(() => {
-    if (!configReady || !token || !apiKeyConfigured) return;
+    const modeReady = integrationMode === 'scraper' ? scraperConfigured : apiKeyConfigured;
+    if (!configReady || !token || !modeReady) return;
     if (selectedSection !== 'documents') return;
     loadDocumentRequests();
-  }, [configReady, token, apiKeyConfigured, selectedSection]);
+  }, [configReady, token, apiKeyConfigured, scraperConfigured, integrationMode, selectedSection]);
 
   if (booting) {
     return (
@@ -554,29 +650,79 @@ export default function App() {
           </View>
         )}
 
-        {configReady && token && !apiKeyConfigured && (
+        {configReady && token && (
           <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Enter ERP API Key</Text>
-            <Text style={styles.panelHint}>Generate this key from ERP dashboard → API Access.</Text>
+            <Text style={styles.panelTitle}>Home: Choose Integration Method</Text>
+            <View style={styles.modeRow}>
+              <Pressable style={[styles.modeButton, integrationMode === 'api' && styles.modeButtonActive]} onPress={() => switchIntegrationMode('api')}>
+                <Text style={[styles.modeButtonText, integrationMode === 'api' && styles.modeButtonTextActive]}>API Key</Text>
+              </Pressable>
+              <Pressable style={[styles.modeButton, integrationMode === 'scraper' && styles.modeButtonActive]} onPress={() => switchIntegrationMode('scraper')}>
+                <Text style={[styles.modeButtonText, integrationMode === 'scraper' && styles.modeButtonTextActive]}>Scraper</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.panelHint}>
+              {integrationMode === 'api'
+                ? 'Generate this key from ERP dashboard → API Access.'
+                : 'Use ERP login credentials. Companion will verify login with Puppeteer scraper.'}
+            </Text>
+
             {error && <View style={styles.errorContainer}><Text style={styles.errorContainerText}>{error}</Text></View>}
-            <TextInput
-              style={styles.input}
-              value={erpApiKey}
-              onChangeText={setErpApiKey}
-              placeholder="erp_xxxxxxxxx"
-              autoCapitalize="none"
-              placeholderTextColor="#90A4AE"
-            />
-            <Pressable style={styles.primaryButton} onPress={saveErpApiKey} disabled={busy}>
-              <Text style={styles.primaryButtonText}>{busy ? 'Verifying...' : 'Save and Continue'}</Text>
-            </Pressable>
+
+            {integrationMode === 'api' ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  value={erpApiKey}
+                  onChangeText={setErpApiKey}
+                  placeholder="erp_xxxxxxxxx"
+                  autoCapitalize="none"
+                  placeholderTextColor="#90A4AE"
+                />
+                <Pressable style={styles.primaryButton} onPress={saveErpApiKey} disabled={busy}>
+                  <Text style={styles.primaryButtonText}>{busy ? 'Verifying...' : 'Save and Continue'}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.input}
+                  value={erpLoginUrl}
+                  onChangeText={setErpLoginUrl}
+                  placeholder="ERP Login URL (e.g. http://192.168.0.101:5173)"
+                  autoCapitalize="none"
+                  placeholderTextColor="#90A4AE"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={erpLoginId}
+                  onChangeText={setErpLoginId}
+                  placeholder="ERP Login ID / Email"
+                  autoCapitalize="none"
+                  placeholderTextColor="#90A4AE"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={erpLoginPassword}
+                  onChangeText={setErpLoginPassword}
+                  secureTextEntry
+                  placeholder="ERP Password"
+                  placeholderTextColor="#90A4AE"
+                />
+                <Pressable style={styles.primaryButton} onPress={saveScraperCredentials} disabled={busy}>
+                  <Text style={styles.primaryButtonText}>{busy ? 'Verifying...' : 'Verify Login and Continue'}</Text>
+                </Pressable>
+              </>
+            )}
+
             <Pressable style={styles.changeUrlsButton} onPress={resetUrls}>
               <Text style={styles.changeUrlsText}>Change URLs</Text>
             </Pressable>
           </View>
         )}
 
-        {configReady && token && apiKeyConfigured && (
+        {configReady && token && ((integrationMode === 'scraper' ? scraperConfigured : apiKeyConfigured)) && (
           <>
             <View style={styles.sectionRow}>
               {[
